@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Tuple, Union, Optional
 from datetime import datetime
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from dbgpt._private.pydantic import BaseModel, Field
-
+from dbgpt.core.awel import MapOperator
 from dbgpt.core.interface.storage import (
-    ResourceIdentifier,
-    StorageItem,
-    StorageInterface,
     InMemoryStorage,
+    ResourceIdentifier,
+    StorageInterface,
+    StorageItem,
 )
 
 
@@ -112,6 +112,7 @@ class ModelMessage(BaseModel):
     """Similar to openai's message format"""
     role: str
     content: str
+    round_index: Optional[int] = 0
 
     @staticmethod
     def from_openai_messages(
@@ -157,14 +158,13 @@ class ModelMessage(BaseModel):
             else:
                 pass
         # Move the last user's information to the end
-        temp_his = history[::-1]
-        last_user_input = None
-        for m in temp_his:
-            if m["role"] == "user":
-                last_user_input = m
+        last_user_input_index = None
+        for i in range(len(history) - 1, -1, -1):
+            if history[i]["role"] == "user":
+                last_user_input_index = i
                 break
-        if last_user_input:
-            history.remove(last_user_input)
+        if last_user_input_index:
+            last_user_input = history.pop(last_user_input_index)
             history.append(last_user_input)
         return history
 
@@ -175,6 +175,22 @@ class ModelMessage(BaseModel):
     @staticmethod
     def build_human_message(content: str) -> "ModelMessage":
         return ModelMessage(role=ModelMessageRoleType.HUMAN, content=content)
+
+    @staticmethod
+    def get_printable_message(messages: List["ModelMessage"]) -> str:
+        """Get the printable message"""
+        str_msg = ""
+        for message in messages:
+            curr_message = (
+                f"(Round {message.round_index}) {message.role}: {message.content} "
+            )
+            str_msg += curr_message.rstrip() + "\n"
+
+        return str_msg
+
+
+_SingleRoundMessage = List[ModelMessage]
+_MultiRoundMessageMapper = Callable[[List[_SingleRoundMessage]], List[ModelMessage]]
 
 
 def _message_to_dict(message: BaseMessage) -> Dict:
@@ -203,19 +219,65 @@ def _messages_from_dict(messages: List[Dict]) -> List[BaseMessage]:
     return [_message_from_dict(m) for m in messages]
 
 
-def _parse_model_messages(
+def parse_model_messages(
     messages: List[ModelMessage],
 ) -> Tuple[str, List[str], List[List[str, str]]]:
     """
-    Parameters:
-        messages: List of message from base chat.
+    Parse model messages to extract the user prompt, system messages, and a history of conversation.
+
+    This function analyzes a list of ModelMessage objects, identifying the role of each message (e.g., human, system, ai)
+    and categorizes them accordingly. The last message is expected to be from the user (human), and it's treated as
+    the current user prompt. System messages are extracted separately, and the conversation history is compiled into
+    pairs of human and AI messages.
+
+    Args:
+        messages (List[ModelMessage]): List of messages from a chat conversation.
+
     Returns:
-        A tuple contains user prompt, system message list and history message list
-        str: user prompt
-        List[str]: system messages
-        List[List[str]]: history message of user and assistant
+        tuple: A tuple containing the user prompt, list of system messages, and the conversation history.
+               The conversation history is a list of message pairs, each containing a user message and the corresponding AI response.
+
+    Examples:
+        .. code-block:: python
+
+            # Example 1: Single round of conversation
+            messages = [
+                ModelMessage(role="human", content="Hello"),
+                ModelMessage(role="ai", content="Hi there!"),
+                ModelMessage(role="human", content="How are you?"),
+            ]
+            user_prompt, system_messages, history = parse_model_messages(messages)
+            # user_prompt: "How are you?"
+            # system_messages: []
+            # history: [["Hello", "Hi there!"]]
+
+            # Example 2: Conversation with system messages
+            messages = [
+                ModelMessage(role="system", content="System initializing..."),
+                ModelMessage(role="human", content="Is it sunny today?"),
+                ModelMessage(role="ai", content="Yes, it's sunny."),
+                ModelMessage(role="human", content="Great!"),
+            ]
+            user_prompt, system_messages, history = parse_model_messages(messages)
+            # user_prompt: "Great!"
+            # system_messages: ["System initializing..."]
+            # history: [["Is it sunny today?", "Yes, it's sunny."]]
+
+            # Example 3: Multiple rounds with system message
+            messages = [
+                ModelMessage(role="human", content="Hi"),
+                ModelMessage(role="ai", content="Hello!"),
+                ModelMessage(role="system", content="Error 404"),
+                ModelMessage(role="human", content="What's the error?"),
+                ModelMessage(role="ai", content="Just a joke."),
+                ModelMessage(role="human", content="Funny!"),
+            ]
+            user_prompt, system_messages, history = parse_model_messages(messages)
+            # user_prompt: "Funny!"
+            # system_messages: ["Error 404"]
+            # history: [["Hi", "Hello!"], ["What's the error?", "Just a joke."]]
     """
-    user_prompt = ""
+
     system_messages: List[str] = []
     history_messages: List[List[str]] = [[]]
 
@@ -398,6 +460,7 @@ class OnceConversation:
         self.tokens = conversation.tokens
         self.user_name = conversation.user_name
         self.sys_code = conversation.sys_code
+        self._message_index = conversation._message_index
 
     def get_messages_by_round(self, round_index: int) -> List[BaseMessage]:
         """Get the messages by round index
@@ -425,6 +488,7 @@ class OnceConversation:
 
         Example:
             .. code-block:: python
+
                 conversation = OnceConversation()
                 conversation.start_new_round()
                 conversation.add_user_message("hello, this is the first round")
@@ -440,11 +504,17 @@ class OnceConversation:
                 conversation.end_current_round()
 
                 assert len(conversation.get_messages_with_round(1)) == 2
-                assert conversation.get_messages_with_round(1)[0].content == "hello, this is the third round"
+                assert (
+                    conversation.get_messages_with_round(1)[0].content
+                    == "hello, this is the third round"
+                )
                 assert conversation.get_messages_with_round(1)[1].content == "hi"
 
                 assert len(conversation.get_messages_with_round(2)) == 4
-                assert conversation.get_messages_with_round(2)[0].content == "hello, this is the second round"
+                assert (
+                    conversation.get_messages_with_round(2)[0].content
+                    == "hello, this is the second round"
+                )
                 assert conversation.get_messages_with_round(2)[1].content == "hi"
 
         Args:
@@ -472,6 +542,7 @@ class OnceConversation:
         Examples:
             If you not need the history messages, you can override this method like this:
             .. code-block:: python
+
                 def get_model_messages(self) -> List[ModelMessage]:
                     messages = []
                     for message in self.get_latest_round():
@@ -483,6 +554,7 @@ class OnceConversation:
 
             If you want to add the one round history messages, you can override this method like this:
             .. code-block:: python
+
                 def get_model_messages(self) -> List[ModelMessage]:
                     messages = []
                     latest_round_index = self.chat_order
@@ -492,7 +564,9 @@ class OnceConversation:
                         for message in self.get_messages_by_round(round_index):
                             if message.pass_to_model:
                                 messages.append(
-                                    ModelMessage(role=message.type, content=message.content)
+                                    ModelMessage(
+                                        role=message.type, content=message.content
+                                    )
                                 )
                     return messages
 
@@ -503,7 +577,11 @@ class OnceConversation:
         for message in self.messages:
             if message.pass_to_model:
                 messages.append(
-                    ModelMessage(role=message.type, content=message.content)
+                    ModelMessage(
+                        role=message.type,
+                        content=message.content,
+                        round_index=message.round_index,
+                    )
                 )
         return messages
 
@@ -735,6 +813,9 @@ class StorageConversation(OnceConversation, StorageItem):
         )
         messages = [message.to_message() for message in message_list]
         conversation.messages = messages
+        # This index is used to save the message to the storage(Has not been saved)
+        # The new message append to the messages, so the index is len(messages)
+        conversation._message_index = len(messages)
         self._message_ids = message_ids
         self._has_stored_message_index = len(messages) - 1
         self.from_conversation(conversation)

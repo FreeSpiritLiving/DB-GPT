@@ -1,6 +1,8 @@
 # Define your Pydantic schemas here
 from typing import Optional
+
 from dbgpt._private.pydantic import BaseModel, Field
+
 from ..config import SERVE_APP_NAME_HUMP
 
 
@@ -39,6 +41,15 @@ class ServeRequest(BaseModel):
             "Write a qsort function in python",
             "Tell me a joke about AI",
             "You are a data analysis expert.",
+        ],
+    )
+    prompt_desc: Optional[str] = Field(
+        None,
+        description="The prompt description.",
+        examples=[
+            "This is a prompt for code assistant.",
+            "This is a prompt for joker.",
+            "This is a prompt for data analysis expert.",
         ],
     )
 

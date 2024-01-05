@@ -1,47 +1,53 @@
+from dbgpt.core.interface.cache import (
+    CacheClient,
+    CacheConfig,
+    CacheKey,
+    CachePolicy,
+    CacheValue,
+)
 from dbgpt.core.interface.llm import (
+    LLMClient,
     ModelInferenceMetrics,
+    ModelMetadata,
     ModelOutput,
-    OpenAILLM,
-    BaseLLMOperator,
-    RequestBuildOperator,
+    ModelRequest,
+    ModelRequestContext,
 )
 from dbgpt.core.interface.message import (
+    ConversationIdentifier,
+    MessageIdentifier,
+    MessageStorageItem,
     ModelMessage,
     ModelMessageRoleType,
     OnceConversation,
     StorageConversation,
-    MessageStorageItem,
-    ConversationIdentifier,
-    MessageIdentifier,
 )
-from dbgpt.core.interface.prompt import PromptTemplate, PromptTemplateOperator
 from dbgpt.core.interface.output_parser import BaseOutputParser, SQLOutputParser
-from dbgpt.core.interface.serialization import Serializable, Serializer
-from dbgpt.core.interface.cache import (
-    CacheKey,
-    CacheValue,
-    CacheClient,
-    CachePolicy,
-    CacheConfig,
+from dbgpt.core.interface.prompt import (
+    PromptManager,
+    PromptTemplate,
+    StoragePromptTemplate,
 )
+from dbgpt.core.interface.serialization import Serializable, Serializer
 from dbgpt.core.interface.storage import (
+    DefaultStorageItemAdapter,
+    InMemoryStorage,
+    QuerySpec,
     ResourceIdentifier,
+    StorageError,
+    StorageInterface,
     StorageItem,
     StorageItemAdapter,
-    StorageInterface,
-    InMemoryStorage,
-    DefaultStorageItemAdapter,
-    QuerySpec,
-    StorageError,
 )
 
 __ALL__ = [
     "ModelInferenceMetrics",
+    "ModelRequest",
+    "ModelRequestContext",
     "ModelOutput",
-    "OpenAILLM",
-    "BaseLLMOperator",
-    "RequestBuildOperator",
+    "ModelMetadata",
     "ModelMessage",
+    "LLMClient",
     "ModelMessageRoleType",
     "OnceConversation",
     "StorageConversation",
@@ -49,7 +55,8 @@ __ALL__ = [
     "ConversationIdentifier",
     "MessageIdentifier",
     "PromptTemplate",
-    "PromptTemplateOperator",
+    "PromptManager",
+    "StoragePromptTemplate",
     "BaseOutputParser",
     "SQLOutputParser",
     "Serializable",

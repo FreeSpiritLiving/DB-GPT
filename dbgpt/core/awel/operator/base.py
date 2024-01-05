@@ -1,32 +1,32 @@
-from abc import ABC, abstractmethod, ABCMeta
-
+import asyncio
+import functools
+from abc import ABC, ABCMeta, abstractmethod
+from inspect import signature
 from types import FunctionType
 from typing import (
-    List,
-    Generic,
-    TypeVar,
-    AsyncIterator,
-    Iterator,
-    Union,
     Any,
+    AsyncIterator,
     Dict,
+    Generic,
+    Iterator,
+    List,
     Optional,
+    TypeVar,
+    Union,
     cast,
 )
-import functools
-from inspect import signature
-import asyncio
-from dbgpt.component import SystemApp, ComponentType
+
+from dbgpt.component import ComponentType, SystemApp
 from dbgpt.util.executor_utils import (
-    ExecutorFactory,
-    DefaultExecutorFactory,
-    blocking_func_to_async,
-    BlockingFunction,
     AsyncToSyncIterator,
+    BlockingFunction,
+    DefaultExecutorFactory,
+    ExecutorFactory,
+    blocking_func_to_async,
 )
 
-from ..dag.base import DAGNode, DAGContext, DAGVar, DAG
-from ..task.base import TaskOutput, OUT, T
+from ..dag.base import DAG, DAGContext, DAGNode, DAGVar
+from ..task.base import OUT, T, TaskOutput
 
 F = TypeVar("F", bound=FunctionType)
 
@@ -146,6 +146,16 @@ class BaseOperator(DAGNode, ABC, Generic[OUT], metaclass=BaseOperatorMeta):
     def current_dag_context(self) -> DAGContext:
         return self._dag_ctx
 
+    @property
+    def dev_mode(self) -> bool:
+        """Whether the operator is in dev mode.
+        In production mode, the default runner is not None.
+
+        Returns:
+            bool: Whether the operator is in dev mode. True if the default runner is None.
+        """
+        return default_runner is None
+
     async def _run(self, dag_ctx: DAGContext) -> TaskOutput[OUT]:
         if not self.node_id:
             raise ValueError(f"The DAG Node ID can't be empty, current node {self}")
@@ -211,7 +221,9 @@ class BaseOperator(DAGNode, ABC, Generic[OUT], metaclass=BaseOperatorMeta):
         Returns:
             AsyncIterator[OUT]: An asynchronous iterator over the output stream.
         """
-        out_ctx = await self._runner.execute_workflow(self, call_data)
+        out_ctx = await self._runner.execute_workflow(
+            self, call_data, streaming_call=True
+        )
         return out_ctx.current_task_context.task_output.output_stream
 
     def _blocking_call_stream(

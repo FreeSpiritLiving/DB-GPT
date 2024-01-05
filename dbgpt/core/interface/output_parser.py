@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from abc import ABC
 import logging
+from abc import ABC
 from dataclasses import asdict
 from typing import Any, Dict, TypeVar, Union
 
-from dbgpt.core.awel import MapOperator
 from dbgpt.core import ModelOutput
+from dbgpt.core.awel import MapOperator
 
 T = TypeVar("T")
 ResponseTye = Union[str, bytes, ModelOutput]
@@ -84,7 +84,7 @@ class BaseOutputParser(MapOperator[ModelOutput, Any], ABC):
             ai_response = ai_response.replace("\*", "*")
             ai_response = ai_response.replace("\t", "")
 
-            ai_response = ai_response.strip().replace("\\n", " ").replace("\n", " ")
+            # ai_response = ai_response.strip().replace("\\n", " ").replace("\n", " ")
             print("un_stream ai response:", ai_response)
             return ai_response
         else:

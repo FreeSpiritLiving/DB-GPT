@@ -70,7 +70,7 @@ def _initialize_openai_v1(params: ProxyModelParameters):
     api_type = params.proxy_api_type or os.getenv("OPENAI_API_TYPE", "open_ai")
 
     base_url = params.proxy_api_base or os.getenv(
-        "OPENAI_API_TYPE",
+        "OPENAI_API_BASE",
         os.getenv("AZURE_OPENAI_ENDPOINT") if api_type == "azure" else None,
     )
     api_key = params.proxy_api_key or os.getenv(
@@ -91,35 +91,44 @@ def _initialize_openai_v1(params: ProxyModelParameters):
     return openai_params, api_type, api_version, proxies
 
 
-def _build_request(model: ProxyModel, params):
-    history = []
+def __convert_2_gpt_messages(messages: List[ModelMessage]):
+    gpt_messages = []
+    last_usr_message = ""
+    system_messages = []
 
+    # TODO: We can't change message order in low level
+    for message in messages:
+        if message.role == ModelMessageRoleType.HUMAN or message.role == "user":
+            last_usr_message = message.content
+        elif message.role == ModelMessageRoleType.SYSTEM:
+            system_messages.append(message.content)
+        elif message.role == ModelMessageRoleType.AI or message.role == "assistant":
+            last_ai_message = message.content
+            gpt_messages.append({"role": "user", "content": last_usr_message})
+            gpt_messages.append({"role": "assistant", "content": last_ai_message})
+
+    if len(system_messages) > 0:
+        if len(system_messages) < 2:
+            gpt_messages.insert(0, {"role": "system", "content": system_messages[0]})
+            gpt_messages.append({"role": "user", "content": last_usr_message})
+        else:
+            gpt_messages.append({"role": "user", "content": system_messages[1]})
+    else:
+        last_message = messages[-1]
+        if last_message.role == ModelMessageRoleType.HUMAN:
+            gpt_messages.append({"role": "user", "content": last_message.content})
+
+    return gpt_messages
+
+
+def _build_request(model: ProxyModel, params):
     model_params = model.get_params()
     logger.info(f"Model: {model}, model_params: {model_params}")
 
     messages: List[ModelMessage] = params["messages"]
-    # Add history conversation
-    for message in messages:
-        if message.role == ModelMessageRoleType.HUMAN:
-            history.append({"role": "user", "content": message.content})
-        elif message.role == ModelMessageRoleType.SYSTEM:
-            history.append({"role": "system", "content": message.content})
-        elif message.role == ModelMessageRoleType.AI:
-            history.append({"role": "assistant", "content": message.content})
-        else:
-            pass
 
-    # Move the last user's information to the end
-    temp_his = history[::-1]
-    last_user_input = None
-    for m in temp_his:
-        if m["role"] == "user":
-            last_user_input = m
-            break
-    if last_user_input:
-        history.remove(last_user_input)
-        history.append(last_user_input)
-
+    # history = __convert_2_gpt_messages(messages)
+    history = ModelMessage.to_openai_messages(messages)
     payloads = {
         "temperature": params.get("temperature"),
         "max_tokens": params.get("max_new_tokens"),

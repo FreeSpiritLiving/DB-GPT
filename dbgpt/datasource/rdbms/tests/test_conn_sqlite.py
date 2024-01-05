@@ -13,7 +13,11 @@ def db():
     temp_db_file.close()
     conn = SQLiteConnect.from_file_path(temp_db_file.name)
     yield conn
-    os.unlink(temp_db_file.name)
+    try:
+        # TODO: Failed on windows
+        os.unlink(temp_db_file.name)
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 
 def test_get_table_names(db):
@@ -43,7 +47,8 @@ def test_run_no_throw(db):
 def test_get_indexes(db):
     db.run("CREATE TABLE test (name TEXT);")
     db.run("CREATE INDEX idx_name ON test(name);")
-    assert db.get_indexes("test") == [("idx_name", "c")]
+    indexes = db.get_indexes("test")
+    assert indexes == [{"name": "idx_name", "column_names": ["name"]}]
 
 
 def test_get_indexes_empty(db):
